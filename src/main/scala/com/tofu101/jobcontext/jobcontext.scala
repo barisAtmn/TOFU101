@@ -1,5 +1,6 @@
 package com.tofu101
 
+import cats.kernel.Monoid
 import com.tofu101.algebras.SumLogic
 import com.tofu101.logging.DefaultLogger
 import tofu.WithLocal

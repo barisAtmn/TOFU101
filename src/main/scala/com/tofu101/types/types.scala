@@ -1,6 +1,7 @@
 package com.tofu101
 
 import cats.effect.IO
+import cats.kernel.Monoid
 import jobcontext.JobEnvironment
 import tofu.concurrent.ContextT
 import tofu.syntax.monadic._

@@ -1,7 +1,7 @@
 package com.tofu101.algebras
 
 import com.tofu101.logging.DefaultLogger
-import cats.{FlatMap, Parallel}
+import cats.{FlatMap, Monoid, Parallel}
 import cats.effect.Sync
 import tofu.MonadThrow
 import derevo.derive
@@ -11,6 +11,7 @@ import tofu.lift.Lift
 import tofu.syntax.monadic._
 import tofu.syntax.lift._
 import tofu.higherKind.Mid
+import cats.syntax.monoid._
 
 import scala.reflect.ClassTag
 
@@ -20,7 +21,7 @@ import scala.reflect.ClassTag
  **/
 @derive(representableK)
 trait SumLogic[F[_]] {
-  def sum(param1: Int, param2: Int): F[Int]
+  def sum[A: Monoid](param1: A, param2: A): F[A]
 }
 
 /**
@@ -44,10 +45,12 @@ object SumLogic extends ContextEmbed[SumLogic] {
     *[_]
   ]] extends SumLogic[F] {
 
-    override def sum(param1: Int, param2: Int): F[Int] = {
+    override def sum[A: Monoid](param1: A, param2: A): F[A] = {
+      import cats.syntax.monoid._
+      import cats.implicits._
       Sync[I]
         .delay {
-          (param1 + param2)
+          (Monoid[A].combine(param1, param2))
         }
         .lift[F]
     }
@@ -62,11 +65,11 @@ object SumLogic extends ContextEmbed[SumLogic] {
     *[_]
   ]](implicit ct: ClassTag[SumLogic[Any]])
       extends SumLogic[Mid[F, *]] {
-    override def sum(param1: Int, param2: Int): Mid[F, Int] = { x =>
+    override def sum[A: Monoid](param1: A, param2: A): Mid[F, A] = { x =>
       DefaultLogger[I]
-        .info(s"Trying to sum $param1 and $param2")
+        .info(s"Trying to sum ${param1.toString} and ${param2.toString}")
         .lift[F] *> x.flatTap(
-        value => DefaultLogger[I].info(s"result ${value}").lift[F]
+        value => DefaultLogger[I].info(s"result ${value.toString}").lift[F]
       )
     }
   }
