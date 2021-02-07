@@ -5,7 +5,7 @@ import derevo.derive
 import tofu.data.derived.ContextEmbed
 import tofu.higherKind.derived.representableK
 import tofu.lift.Lift
-import tofu.logging.{Logging, Logs}
+import tofu.logging.{Logs}
 import tofu.syntax.monadic._
 import tofu.syntax.lift._
 import tofu.syntax.embed._
@@ -51,7 +51,7 @@ object DefaultLogger extends ContextEmbed[DefaultLogger] {
     new LoggerImpl[I, F].init
 
   private final class LoggerImpl[I[_]: Sync, F[_]: Sync: Lift[I, *[_]]] {
-    private val logs = Logs.sync[I, F]
+    private val logs: Logs[I, F] = Logs.sync[I, F]
     private def logInfo[M: ClassTag](msg: String): I[F[Unit]] =
       logs.forService[M].map(log => log.info(msg))
 

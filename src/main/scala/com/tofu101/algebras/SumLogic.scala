@@ -2,16 +2,16 @@ package com.tofu101.algebras
 
 import com.tofu101.logging.DefaultLogger
 import cats.{FlatMap, Monoid, Parallel}
-import cats.effect.Sync
+import cats.effect.{Sync}
 import tofu.MonadThrow
 import derevo.derive
 import tofu.data.derived.ContextEmbed
 import tofu.higherKind.derived.representableK
-import tofu.lift.Lift
+import tofu.lift.{Lift}
 import tofu.syntax.monadic._
 import tofu.syntax.lift._
 import tofu.higherKind.Mid
-import cats.syntax.monoid._
+import natchez.{Tags, Trace}
 
 import scala.reflect.ClassTag
 
@@ -26,7 +26,7 @@ trait SumLogic[F[_]] {
 
 /**
   * ContextEmbed mixins for typeclass companion
-  * * to add contextual embedded instance
+  * to add contextual embedded instance
  **/
 object SumLogic extends ContextEmbed[SumLogic] {
   def apply[F[_]: SumLogic]: SumLogic[F] = implicitly
@@ -34,23 +34,28 @@ object SumLogic extends ContextEmbed[SumLogic] {
   /**
     * F[_] is for monad transformation
     * */
-  def make[I[_]: Sync: Parallel: DefaultLogger, F[_]: MonadThrow: Lift[I, *[_]]]
-    : I[SumLogic[F]] = (new Logger[I, F] attach new SumLogicImpl[I, F]).pure[I]
+  def make[I[_]: Sync: Parallel: DefaultLogger: Trace: Lift[F, *[_]], F[_]: MonadThrow: Lift[
+    I,
+    *[_]
+  ]]: I[SumLogic[F]] =
+    (new BusinessLogicMiddleware[I, F] attach new SumLogicImpl[I, F])
+      .pure[I]
 
   /**
     * Implementation of algebra
    **/
-  private final class SumLogicImpl[I[_]: Sync: Parallel: DefaultLogger, F[_]: MonadThrow: Lift[
-    I,
+  private final class SumLogicImpl[I[_]: Sync: Parallel: DefaultLogger: Trace: Lift[
+    F,
     *[_]
-  ]] extends SumLogic[F] {
+  ], F[_]: MonadThrow: Lift[I, *[_]]]
+      extends SumLogic[F] {
 
     override def sum[A: Monoid](param1: A, param2: A): F[A] = {
       import cats.syntax.monoid._
       import cats.implicits._
       Sync[I]
         .delay {
-          (Monoid[A].combine(param1, param2))
+          Monoid[A].combine(param1, param2)
         }
         .lift[F]
     }
@@ -58,19 +63,34 @@ object SumLogic extends ContextEmbed[SumLogic] {
   }
 
   /**
-    *
+    * Trace and Log are used with Mid
    **/
-  private final class Logger[I[_]: Sync: Parallel: DefaultLogger, F[_]: FlatMap: Lift[
-    I,
+  private final class BusinessLogicMiddleware[I[_]: Sync: Parallel: DefaultLogger: Trace: Lift[
+    F,
     *[_]
-  ]](implicit ct: ClassTag[SumLogic[Any]])
+  ], F[_]: FlatMap: Lift[I, *[_]]](implicit ct: ClassTag[SumLogic[Any]])
       extends SumLogic[Mid[F, *]] {
     override def sum[A: Monoid](param1: A, param2: A): Mid[F, A] = { x =>
-      DefaultLogger[I]
-        .info(s"Trying to sum ${param1.toString} and ${param2.toString}")
-        .lift[F] *> x.flatTap(
-        value => DefaultLogger[I].info(s"result ${value.toString}").lift[F]
-      )
+      Trace[I]
+        .span("child span") {
+          for {
+            _ <- Trace[I].put(
+              Tags.message_bus.destination(s"kafka sum--output")
+            )
+            logs <- DefaultLogger[I]
+              .info(s"Trying to sum ${param1.toString} and ${param2.toString}") *> x
+              .flatTap(
+                value =>
+                  DefaultLogger[I].info(s"result ${value.toString}").lift[F]
+              )
+              .lift[I]
+            _ <- Trace[I]
+              .put(Tags.error(false))
+              .flatMap(_ => Trace[I].put(Tags.http.status_code("200")))
+          } yield logs
+
+        }
+        .lift[F]
     }
   }
 
